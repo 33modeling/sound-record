@@ -5,7 +5,6 @@ import android.content.ContentValues;
 import android.content.ContentUris;
 import android.content.Context;
 import android.database.Cursor;
-import android.media.MediaMetadataRetriever;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
@@ -23,7 +22,8 @@ import java.util.Set;
 
 public final class RecordingStore {
     private static final String RECORDINGS_RELATIVE_PATH =
-            Environment.DIRECTORY_RECORDINGS + File.separator + "Voice Recorder";
+            "Recordings" + File.separator + "Voice Recorder";
+    private static final String COLUMN_IS_RECORDING = "is_recording";
     private static final String MIME_TYPE = "audio/mp4";
     private static final String EXTENSION = ".m4a";
 
@@ -65,24 +65,9 @@ public final class RecordingStore {
         values.put(MediaStore.Audio.Media.TITLE, titleFromFileName(fileName));
         values.put(MediaStore.Audio.Media.MIME_TYPE, MIME_TYPE);
         values.put(MediaStore.Audio.Media.RELATIVE_PATH, RECORDINGS_RELATIVE_PATH);
-        values.put(MediaStore.Audio.Media.SIZE, source.length());
-        values.put(MediaStore.Audio.Media.DATE_ADDED, System.currentTimeMillis() / 1000L);
-        values.put(MediaStore.Audio.Media.DATE_MODIFIED, source.lastModified() / 1000L);
-        values.put(MediaStore.Audio.Media.DURATION, readDurationMillis(source));
-        values.put(MediaStore.Audio.Media.IS_MUSIC, 0);
-        values.put(MediaStore.Audio.Media.IS_ALARM, 0);
-        values.put(MediaStore.Audio.Media.IS_NOTIFICATION, 0);
-        values.put(MediaStore.Audio.Media.IS_PODCAST, 0);
-        values.put(MediaStore.Audio.Media.IS_RINGTONE, 0);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            values.put(MediaStore.Audio.Media.IS_RECORDING, 1);
-            values.put(MediaStore.Audio.Media.SAMPLERATE, 48000);
-            values.put(MediaStore.Audio.Media.BITRATE, 128000);
-        }
         values.put(MediaStore.Audio.Media.IS_PENDING, 1);
 
-        Uri collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-        Uri uri = resolver.insert(collection, values);
+        Uri uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values);
         if (uri == null) {
             throw new IOException("MediaStore insert failed");
         }
@@ -100,6 +85,7 @@ public final class RecordingStore {
                 ContentValues done = new ContentValues();
                 done.put(MediaStore.Audio.Media.IS_PENDING, 0);
                 resolver.update(uri, done, null, null);
+                markAsVoiceRecording(resolver, uri);
                 scanSavedFile(context, fileName);
             } else {
                 resolver.delete(uri, null, null);
@@ -130,9 +116,19 @@ public final class RecordingStore {
         return Uri.fromFile(target);
     }
 
+    private static void markAsVoiceRecording(ContentResolver resolver, Uri uri) {
+        ContentValues values = new ContentValues();
+        values.put(COLUMN_IS_RECORDING, 1);
+        try {
+            resolver.update(uri, values, null, null);
+        } catch (RuntimeException ignored) {
+            // Save must still succeed on platform builds that reserve these columns for the scanner.
+        }
+    }
+
     private static void repairMediaStoreRows(Context context) {
         ContentResolver resolver = context.getContentResolver();
-        Uri collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        Uri collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
         String[] projection = {
                 MediaStore.Audio.Media._ID,
                 MediaStore.Audio.Media.DISPLAY_NAME,
@@ -166,29 +162,12 @@ public final class RecordingStore {
                 }
 
                 Uri itemUri = ContentUris.withAppendedId(collection, id);
-                try {
-                    resolver.update(itemUri, repairMetadataValues(), null, null);
-                } catch (RuntimeException ignored) {
-                    // Some platform builds only let the media scanner set these columns.
-                }
+                markAsVoiceRecording(resolver, itemUri);
                 scanSavedFile(context, displayName);
             }
         } catch (RuntimeException ignored) {
             scanRecordingDirectory(context);
         }
-    }
-
-    private static ContentValues repairMetadataValues() {
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Audio.Media.IS_MUSIC, 0);
-        values.put(MediaStore.Audio.Media.IS_ALARM, 0);
-        values.put(MediaStore.Audio.Media.IS_NOTIFICATION, 0);
-        values.put(MediaStore.Audio.Media.IS_PODCAST, 0);
-        values.put(MediaStore.Audio.Media.IS_RINGTONE, 0);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            values.put(MediaStore.Audio.Media.IS_RECORDING, 1);
-        }
-        return values;
     }
 
     private static void scanRecordingDirectory(Context context) {
@@ -204,7 +183,16 @@ public final class RecordingStore {
             paths[i] = files[i].getAbsolutePath();
             mimeTypes[i] = MIME_TYPE;
         }
-        MediaScannerConnection.scanFile(context.getApplicationContext(), paths, mimeTypes, null);
+        MediaScannerConnection.scanFile(
+                context.getApplicationContext(),
+                paths,
+                mimeTypes,
+                (path, uri) -> {
+                    if (uri != null) {
+                        markAsVoiceRecording(context.getContentResolver(), uri);
+                    }
+                }
+        );
     }
 
     private static void scanSavedFile(Context context, String fileName) {
@@ -216,7 +204,11 @@ public final class RecordingStore {
                 context.getApplicationContext(),
                 new String[]{target.getAbsolutePath()},
                 new String[]{MIME_TYPE},
-                null
+                (path, uri) -> {
+                    if (uri != null) {
+                        markAsVoiceRecording(context.getContentResolver(), uri);
+                    }
+                }
         );
     }
 
@@ -259,9 +251,8 @@ public final class RecordingStore {
         String selection = MediaStore.Audio.Media.DISPLAY_NAME + " LIKE ?";
         String[] args = {"Voice %.m4a"};
 
-        Uri collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
         try (Cursor cursor = resolver.query(
-                collection,
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 projection,
                 selection,
                 args,
@@ -319,23 +310,6 @@ public final class RecordingStore {
         return fileName.endsWith(EXTENSION)
                 ? fileName.substring(0, fileName.length() - EXTENSION.length())
                 : fileName;
-    }
-
-    private static long readDurationMillis(File source) {
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            retriever.setDataSource(source.getAbsolutePath());
-            String duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
-            return duration == null ? 0L : Long.parseLong(duration);
-        } catch (RuntimeException exception) {
-            return 0L;
-        } finally {
-            try {
-                retriever.release();
-            } catch (Exception ignored) {
-                // Nothing useful to do if the platform retriever is already closed.
-            }
-        }
     }
 
     private static void copy(InputStream input, OutputStream output) throws IOException {

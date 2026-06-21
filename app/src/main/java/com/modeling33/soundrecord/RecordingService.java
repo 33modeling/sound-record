@@ -30,6 +30,7 @@ public class RecordingService extends Service {
 
     private static final String CHANNEL_ID = "recording";
     private static final int NOTIFICATION_ID = 33;
+    private static final long MAX_WAKE_LOCK_MILLIS = 24L * 60L * 60L * 1000L;
     private static volatile boolean active;
 
     private MediaRecorder recorder;
@@ -84,7 +85,7 @@ public class RecordingService extends Service {
 
     @Override
     public void onDestroy() {
-        releaseRecorder(false);
+        releaseRecorder(true);
         releaseWakeLock();
         super.onDestroy();
     }
@@ -130,8 +131,7 @@ public class RecordingService extends Service {
     }
 
     private boolean hasAudioPermission() {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M
-                || checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        return checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
     }
 
     private void startAsForeground() {
@@ -148,10 +148,7 @@ public class RecordingService extends Service {
         Intent launchIntent = new Intent(this, MainActivity.class);
         launchIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
-        int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
-        }
+        int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
 
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, launchIntent, pendingFlags);
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -262,7 +259,7 @@ public class RecordingService extends Service {
                 getPackageName() + ":recording"
         );
         wakeLock.setReferenceCounted(false);
-        wakeLock.acquire();
+        wakeLock.acquire(MAX_WAKE_LOCK_MILLIS);
     }
 
     private void releaseWakeLock() {
