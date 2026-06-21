@@ -4,6 +4,7 @@ import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
+import android.media.MediaMetadataRetriever;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
@@ -20,7 +21,8 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class RecordingStore {
-    private static final String RECORDINGS_RELATIVE_PATH = "Recordings/Voice Recorder";
+    private static final String RECORDINGS_RELATIVE_PATH =
+            Environment.DIRECTORY_RECORDINGS + File.separator + "Voice Recorder";
     private static final String MIME_TYPE = "audio/mp4";
     private static final String EXTENSION = ".m4a";
 
@@ -54,9 +56,24 @@ public final class RecordingStore {
         values.put(MediaStore.Audio.Media.TITLE, titleFromFileName(fileName));
         values.put(MediaStore.Audio.Media.MIME_TYPE, MIME_TYPE);
         values.put(MediaStore.Audio.Media.RELATIVE_PATH, RECORDINGS_RELATIVE_PATH);
+        values.put(MediaStore.Audio.Media.SIZE, source.length());
+        values.put(MediaStore.Audio.Media.DATE_ADDED, System.currentTimeMillis() / 1000L);
+        values.put(MediaStore.Audio.Media.DATE_MODIFIED, source.lastModified() / 1000L);
+        values.put(MediaStore.Audio.Media.DURATION, readDurationMillis(source));
+        values.put(MediaStore.Audio.Media.IS_MUSIC, 0);
+        values.put(MediaStore.Audio.Media.IS_ALARM, 0);
+        values.put(MediaStore.Audio.Media.IS_NOTIFICATION, 0);
+        values.put(MediaStore.Audio.Media.IS_PODCAST, 0);
+        values.put(MediaStore.Audio.Media.IS_RINGTONE, 0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            values.put(MediaStore.Audio.Media.IS_RECORDING, 1);
+            values.put(MediaStore.Audio.Media.SAMPLERATE, 48000);
+            values.put(MediaStore.Audio.Media.BITRATE, 128000);
+        }
         values.put(MediaStore.Audio.Media.IS_PENDING, 1);
 
-        Uri uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values);
+        Uri collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        Uri uri = resolver.insert(collection, values);
         if (uri == null) {
             throw new IOException("MediaStore insert failed");
         }
@@ -74,6 +91,7 @@ public final class RecordingStore {
                 ContentValues done = new ContentValues();
                 done.put(MediaStore.Audio.Media.IS_PENDING, 0);
                 resolver.update(uri, done, null, null);
+                scanSavedFile(context, fileName);
             } else {
                 resolver.delete(uri, null, null);
             }
@@ -101,6 +119,19 @@ public final class RecordingStore {
                 null
         );
         return Uri.fromFile(target);
+    }
+
+    private static void scanSavedFile(Context context, String fileName) {
+        File target = new File(
+                Environment.getExternalStorageDirectory(),
+                RECORDINGS_RELATIVE_PATH + File.separator + fileName
+        );
+        MediaScannerConnection.scanFile(
+                context.getApplicationContext(),
+                new String[]{target.getAbsolutePath()},
+                new String[]{MIME_TYPE},
+                null
+        );
     }
 
     private static File uniqueFile(File dir, String fileName) {
@@ -201,6 +232,23 @@ public final class RecordingStore {
         return fileName.endsWith(EXTENSION)
                 ? fileName.substring(0, fileName.length() - EXTENSION.length())
                 : fileName;
+    }
+
+    private static long readDurationMillis(File source) {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(source.getAbsolutePath());
+            String duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+            return duration == null ? 0L : Long.parseLong(duration);
+        } catch (RuntimeException exception) {
+            return 0L;
+        } finally {
+            try {
+                retriever.release();
+            } catch (Exception ignored) {
+                // Nothing useful to do if the platform retriever is already closed.
+            }
+        }
     }
 
     private static void copy(InputStream input, OutputStream output) throws IOException {
