@@ -2,7 +2,7 @@ package com.modeling33.soundrecord;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
@@ -11,6 +11,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ResultReceiver;
 import android.view.Gravity;
+import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -114,11 +115,44 @@ public class MainActivity extends Activity {
     }
 
     private void showSaveDialog(File tempFile) {
-        new AlertDialog.Builder(this)
-                .setCancelable(false)
-                .setNegativeButton("버리기", (dialog, which) -> RecordingStore.deleteQuietly(tempFile))
-                .setPositiveButton("저장하기", (dialog, which) -> saveRecording(tempFile))
-                .show();
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(false);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        actions.setBackgroundColor(Color.BLACK);
+
+        Button discardButton = new Button(this);
+        discardButton.setText("버리기");
+        discardButton.setAllCaps(false);
+        discardButton.setOnClickListener(view -> {
+            RecordingStore.deleteQuietly(tempFile);
+            dialog.dismiss();
+        });
+        actions.addView(discardButton, new LinearLayout.LayoutParams(dp(132), dp(64)));
+
+        View spacer = new View(this);
+        actions.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1f));
+
+        Button saveButton = new Button(this);
+        saveButton.setText("저장하기");
+        saveButton.setAllCaps(false);
+        saveButton.setOnClickListener(view -> {
+            saveRecording(tempFile);
+            dialog.dismiss();
+        });
+        actions.addView(saveButton, new LinearLayout.LayoutParams(dp(132), dp(64)));
+
+        dialog.setContentView(actions);
+        dialog.show();
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setGravity(Gravity.BOTTOM);
+            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT);
+        }
     }
 
     private void saveRecording(File tempFile) {
@@ -144,6 +178,10 @@ public class MainActivity extends Activity {
     private boolean hasAudioPermission() {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.M
                 || checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
 
     private void requestMissingPermissions() {
