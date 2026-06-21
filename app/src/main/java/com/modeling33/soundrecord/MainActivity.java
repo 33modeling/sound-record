@@ -34,6 +34,7 @@ public class MainActivity extends Activity {
         configureWindow();
         buildLayout();
         requestMissingPermissions();
+        RecordingStore.repairSavedRecordings(this);
         updateButtons();
     }
 
@@ -181,6 +182,7 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) {
+            RecordingStore.repairSavedRecordings(this);
             updateButtons();
         }
     }

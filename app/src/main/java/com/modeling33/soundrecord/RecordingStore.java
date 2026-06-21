@@ -2,6 +2,7 @@ package com.modeling33.soundrecord;
 
 import android.content.ContentResolver;
 import android.content.ContentValues;
+import android.content.ContentUris;
 import android.content.Context;
 import android.database.Cursor;
 import android.media.MediaMetadataRetriever;
@@ -46,6 +47,14 @@ public final class RecordingStore {
         if (file != null && file.exists()) {
             //noinspection ResultOfMethodCallIgnored
             file.delete();
+        }
+    }
+
+    public static void repairSavedRecordings(Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            repairMediaStoreRows(context);
+        } else {
+            scanRecordingDirectory(context);
         }
     }
 
@@ -121,6 +130,83 @@ public final class RecordingStore {
         return Uri.fromFile(target);
     }
 
+    private static void repairMediaStoreRows(Context context) {
+        ContentResolver resolver = context.getContentResolver();
+        Uri collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        String[] projection = {
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.DISPLAY_NAME,
+                MediaStore.Audio.Media.RELATIVE_PATH
+        };
+        String selection = MediaStore.Audio.Media.DISPLAY_NAME + " LIKE ?";
+        String[] args = {"%.m4a"};
+
+        try (Cursor cursor = resolver.query(collection, projection, selection, args, null)) {
+            if (cursor == null) {
+                return;
+            }
+
+            int idColumn = cursor.getColumnIndex(MediaStore.Audio.Media._ID);
+            int nameColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME);
+            int pathColumn = cursor.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH);
+            while (cursor.moveToNext()) {
+                String relativePath = pathColumn >= 0 ? cursor.getString(pathColumn) : null;
+                if (!isVoiceRecorderPath(relativePath)) {
+                    continue;
+                }
+
+                String displayName = nameColumn >= 0 ? cursor.getString(nameColumn) : null;
+                if (displayName == null || !displayName.endsWith(EXTENSION)) {
+                    continue;
+                }
+
+                long id = idColumn >= 0 ? cursor.getLong(idColumn) : -1L;
+                if (id < 0L) {
+                    continue;
+                }
+
+                Uri itemUri = ContentUris.withAppendedId(collection, id);
+                try {
+                    resolver.update(itemUri, repairMetadataValues(), null, null);
+                } catch (RuntimeException ignored) {
+                    // Some platform builds only let the media scanner set these columns.
+                }
+                scanSavedFile(context, displayName);
+            }
+        } catch (RuntimeException ignored) {
+            scanRecordingDirectory(context);
+        }
+    }
+
+    private static ContentValues repairMetadataValues() {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Audio.Media.IS_MUSIC, 0);
+        values.put(MediaStore.Audio.Media.IS_ALARM, 0);
+        values.put(MediaStore.Audio.Media.IS_NOTIFICATION, 0);
+        values.put(MediaStore.Audio.Media.IS_PODCAST, 0);
+        values.put(MediaStore.Audio.Media.IS_RINGTONE, 0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            values.put(MediaStore.Audio.Media.IS_RECORDING, 1);
+        }
+        return values;
+    }
+
+    private static void scanRecordingDirectory(Context context) {
+        File targetDir = new File(Environment.getExternalStorageDirectory(), RECORDINGS_RELATIVE_PATH);
+        File[] files = targetDir.listFiles((dir, name) -> name.endsWith(EXTENSION));
+        if (files == null || files.length == 0) {
+            return;
+        }
+
+        String[] paths = new String[files.length];
+        String[] mimeTypes = new String[files.length];
+        for (int i = 0; i < files.length; i++) {
+            paths[i] = files[i].getAbsolutePath();
+            mimeTypes[i] = MIME_TYPE;
+        }
+        MediaScannerConnection.scanFile(context.getApplicationContext(), paths, mimeTypes, null);
+    }
+
     private static void scanSavedFile(Context context, String fileName) {
         File target = new File(
                 Environment.getExternalStorageDirectory(),
@@ -173,8 +259,9 @@ public final class RecordingStore {
         String selection = MediaStore.Audio.Media.DISPLAY_NAME + " LIKE ?";
         String[] args = {"Voice %.m4a"};
 
+        Uri collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
         try (Cursor cursor = resolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                collection,
                 projection,
                 selection,
                 args,
