@@ -15,6 +15,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -51,32 +52,44 @@ public class MainActivity extends Activity {
     }
 
     private void buildLayout() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER);
+        FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setGravity(Gravity.CENTER);
 
         startButton = new Button(this);
         startButton.setText("");
         startButton.setContentDescription("Start recording");
         startButton.setBackgroundColor(0xFF444444);
+        startButton.setMinWidth(0);
+        startButton.setMinHeight(0);
+        startButton.setMinimumWidth(0);
+        startButton.setMinimumHeight(0);
         startButton.setOnClickListener(view -> startRecording());
-        root.addView(startButton, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-        ));
+        LinearLayout.LayoutParams startParams = new LinearLayout.LayoutParams(dp(84), dp(84));
+        startParams.setMarginEnd(dp(12));
+        controls.addView(startButton, startParams);
 
         stopButton = new Button(this);
         stopButton.setText("");
         stopButton.setContentDescription("Stop and save");
         stopButton.setBackgroundColor(0xFF222222);
+        stopButton.setMinWidth(0);
+        stopButton.setMinHeight(0);
+        stopButton.setMinimumWidth(0);
+        stopButton.setMinimumHeight(0);
         stopButton.setOnClickListener(view -> stopForDecision());
-        root.addView(stopButton, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-        ));
+        controls.addView(stopButton, new LinearLayout.LayoutParams(dp(84), dp(84)));
+
+        FrameLayout.LayoutParams controlParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.END
+        );
+        controlParams.setMargins(0, 0, dp(20), dp(28));
+        root.addView(controls, controlParams);
 
         setContentView(root);
     }
