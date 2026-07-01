@@ -2,6 +2,17 @@ plugins {
     id "com.android.application"
 }
 
+def versionCodeOverride = project.findProperty("VERSION_CODE")
+def versionNameOverride = project.findProperty("VERSION_NAME")
+def releaseVersionCode = versionCodeOverride ? versionCodeOverride.toString().toInteger() : 1
+def releaseVersionName = versionNameOverride ? versionNameOverride.toString() : "0.0.0"
+
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace "com.modeling33.soundrecord"
     compileSdk 36
@@ -10,8 +21,27 @@ android {
         applicationId "com.modeling33.soundrecord"
         minSdk 23
         targetSdk 36
-        versionCode 1
-        versionName "1.0"
+        versionCode releaseVersionCode
+        versionName releaseVersionName
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile rootProject.file(keystoreProperties["storeFile"])
+                storePassword keystoreProperties["storePassword"]
+                keyAlias keystoreProperties["keyAlias"]
+                keyPassword keystoreProperties["keyPassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
     }
 
     compileOptions {
